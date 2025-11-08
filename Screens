@@ -1,0 +1,365 @@
+import React from "react";
+import { createStackNavigator } from "@react-navigation/stack";
+import ChatsListScreen from "../screens/messages/ChatsListScreen";
+import ChatScreen from "../screens/messages/ChatScreen";
+
+const Stack = createStackNavigator();
+
+export default function MessagesNavigator() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen name="ChatsList" component={ChatsListScreen} />
+      <Stack.Screen name="Chat" component={ChatScreen} />
+    </Stack.Navigator>
+  );
+}import React from "react";
+import { View, StyleSheet } from "react-native";
+import EntertainmentFeed from "./entertainment/EntertainmentFeed";
+
+export default function HomeScreen() {
+  return (
+    <View style={styles.container}>
+      <EntertainmentFeed />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#fff" }
+});import React, { useState } from "react";
+import { View, TextInput, Button, FlatList, Text, StyleSheet } from "react-native";
+import { db } from "../firebase";
+import { collection, query, where, getDocs, limit } from "firebase/firestore";
+
+export default function SearchScreen() {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+
+  async function runSearch() {
+    // Simple Firestore example — exact-match searches only. Use Algolia or Elastic for full-text search.
+    try {
+      const listingsRef = collection(db, "listings");
+      const qRef = query(listingsRef, where("title", "==", q), limit(20));
+      const snap = await getDocs(qRef);
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setResults(items);
+    } catch (e) {
+      console.warn("Search failed", e);
+    }
+  }
+
+  return (
+    <View style={styles.container}>
+      <TextInput value={q} onChangeText={setQ} placeholder="Search marketplace, users, posts..." style={styles.input} />
+      <Button title="Search" onPress={runSearch} />
+      <FlatList data={results} keyExtractor={i => i.id} renderItem={({ item }) => <Text style={styles.row}>{item.title || item.name}</Text>} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 },
+  input: { borderWidth: 1, padding: 8, marginBottom: 8 },
+  row: { padding: 8, borderBottomWidth: 1, borderColor: "#eee" }
+});import React from "react";
+import { View, Text, Button, StyleSheet, Alert } from "react-native";
+
+/*
+  Live streaming integration is provider-specific (Agora/Livepeer/Twilio/WebRTC).
+  This screen is a scaffold and will connect to a provider when you pick one and supply keys.
+*/
+export default function LiveScreen({ navigation }) {
+  const startBroadcast = () => {
+    Alert.alert("Integrate live SDK", "Choose a provider (Agora/Livepeer/Twilio) and provide keys. I can add the integration once you pick one.");
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Live — Broadcast or watch live streams here</Text>
+      <Button title="Start Broadcast (configure provider)" onPress={startBroadcast} />
+      <Button title="Browse Live Streams" onPress={() => navigation.navigate("Home")} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 16, justifyContent: "center" },
+  title: { fontSize: 16, marginBottom: 12 }
+});import React, { useEffect, useState } from "react";
+import { View, FlatList, Dimensions, StyleSheet, Text } from "react-native";
+import { db } from "../../firebase";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+
+const { height } = Dimensions.get("window");
+
+export default function EntertainmentFeed() {
+  const [videos, setVideos] = useState([]);
+
+  useEffect(() => {
+    const q = query(collection(db, "videos"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, snap => {
+      const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setVideos(arr);
+    });
+    return () => unsub();
+  }, []);
+
+  return (
+    <FlatList
+      data={videos}
+      snapToInterval={height}
+      decelerationRate="fast"
+      pagingEnabled
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
+        <View style={[styles.slide, { height }]}>
+          {/* Replace Text with Video player (expo-av or react-native-video) */}
+          <Text style={{ color: "#fff" }}>Video placeholder: {item.title || item.id}</Text>
+        </View>
+      )}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  slide: { justifyContent: "center", alignItems: "center", backgroundColor: "#000" }
+});import React, { useEffect, useState } from "react";
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
+import { db, auth } from "../../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+
+export default function ChatsListScreen({ navigation }) {
+  const [chats, setChats] = useState([]);
+
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const q = query(collection(db, "chats"), where("participants", "array-contains", uid));
+    const unsub = onSnapshot(q, snap => {
+      setChats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={chats}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <TouchableOpacity onPress={() => navigation.navigate("Chat", { chatId: item.id })} style={styles.row}>
+            <Text>{item.title || item.id}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  row: { padding: 12, borderBottomWidth: 1, borderColor: "#eee" }
+});import React, { useEffect, useState } from "react";
+import { View, TextInput, Button, FlatList, Text, StyleSheet } from "react-native";
+import { db, auth } from "../../firebase";
+import { collection, addDoc, onSnapshot, serverTimestamp, orderBy, query } from "firebase/firestore";
+
+export default function ChatScreen({ route }) {
+  const { chatId } = route.params;
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+
+  useEffect(() => {
+    const messagesRef = collection(db, "chats", chatId, "messages");
+    const q = query(messagesRef, orderBy("createdAt", "asc"));
+    const unsub = onSnapshot(q, snap => {
+      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [chatId]);
+
+  const send = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || !text.trim()) return;
+    const messagesRef = collection(db, "chats", chatId, "messages");
+    await addDoc(messagesRef, {
+      text: text.trim(),
+      senderId: uid,
+      createdAt: serverTimestamp(),
+    });
+    setText("");
+  };
+
+  return (
+    <View style={styles.container}>
+      <FlatList data={messages} keyExtractor={m => m.id} renderItem={({ item }) => <Text style={styles.msg}>{item.text}</Text>} />
+      <TextInput value={text} onChangeText={setText} style={styles.input} placeholder="Message..." />
+      <Button title="Send" onPress={send} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 8 },
+  input: { borderWidth: 1, padding: 8, marginVertical: 8 },
+  msg: { padding: 6, borderBottomWidth: 1, borderColor: "#eee" }
+});import React, { useEffect, useState } from "react";
+import { View, Button, FlatList, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { db } from "../../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+
+const categories = ["personal", "family", "workplace"];
+
+export default function ForumsScreen({ navigation }) {
+  const [posts, setPosts] = useState([]);
+  const [category, setCategory] = useState("personal");
+
+  useEffect(() => {
+    const q = query(collection(db, "forums"), where("category", "==", category));
+    const unsub = onSnapshot(q, snap => setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, [category]);
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.buttons}>
+        {categories.map(c => <Button key={c} title={c} onPress={() => setCategory(c)} />)}
+      </View>
+      <FlatList data={posts} keyExtractor={i => i.id} renderItem={({ item }) => (
+        <TouchableOpacity style={styles.row}>
+          <Text style={styles.title}>{item.title}</Text>
+        </TouchableOpacity>
+      )} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  buttons: { flexDirection: "row", justifyContent: "space-around", padding: 8 },
+  row: { padding: 12, borderBottomWidth: 1, borderColor: "#eee" },
+  title: { fontSize: 16 }
+});import React, { useEffect, useState } from "react";
+import { View, FlatList, Text, Button, StyleSheet } from "react-native";
+import { db } from "../../firebase";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+
+export default function MarketplaceScreen({ navigation }) {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    const q = query(collection(db, "listings"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, []);
+
+  return (
+    <View style={styles.container}>
+      <Button title="Create Listing" onPress={() => navigation.navigate("CreateListing")} />
+      <FlatList data={items} keyExtractor={(i) => i.id} renderItem={({ item }) => <Text style={styles.row}>{item.title}</Text>} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 },
+  row: { padding: 12, borderBottomWidth: 1, borderColor: "#eee" }
+});import React from "react";
+import { View, Text, Button, StyleSheet } from "react-native";
+import { auth } from "../firebase";
+
+export default function ProfileScreen({ navigation }) {
+  const user = auth.currentUser;
+  return (
+    <View style={styles.container}>
+      <Text style={styles.row}>Name: {user?.displayName || "Guest"}</Text>
+      <Text style={styles.row}>Email: {user?.email}</Text>
+      <Button title="Settings" onPress={() => navigation.navigate("Settings")} />
+      <Button title="Security" onPress={() => navigation.navigate("Security")} />
+      <Button title="Verify Identity" onPress={() => navigation.navigate("Verification")} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 },
+  row: { marginBottom: 8 }
+});import React from "react";
+import { View, Text, StyleSheet } from "react-native";
+
+export default function Settings() {
+  return (
+    <View style={styles.container}>
+      <Text>Settings (profile edit, notifications, preferences)</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 }
+});import React from "react";
+import { View, Text, Button, StyleSheet } from "react-native";
+import { auth } from "../firebase";
+
+export default function Security({ navigation }) {
+  const logout = async () => {
+    await auth.signOut();
+    // Navigation to login flow should be implemented in an auth stack
+  };
+  return (
+    <View style={styles.container}>
+      <Text>Security (2FA, sessions, change password)</Text>
+      <Button title="Logout" onPress={logout} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 }
+});import React, { useState } from "react";
+import { View, Button, Image, StyleSheet, Alert } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { storage, db, auth } from "../firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+
+export default function Verification() {
+  const [image, setImage] = useState(null);
+
+  const pickDoc = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (!res.cancelled) setImage(res.uri);
+  };
+
+  const upload = async () => {
+    if (!image || !auth.currentUser) return Alert.alert("No image or not logged in");
+    try {
+      const blob = await (await fetch(image)).blob();
+      const storageRef = ref(storage, `verifications/${auth.currentUser.uid}/id.jpg`);
+      await uploadBytes(storageRef, blob);
+      const url = await getDownloadURL(storageRef);
+      await setDoc(doc(db, "verifications", auth.currentUser.uid), {
+        userId: auth.currentUser.uid,
+        idUrl: url,
+        status: "pending",
+        submittedAt: serverTimestamp()
+      });
+      Alert.alert("Uploaded — status pending review");
+    } catch (e) {
+      console.warn(e);
+      Alert.alert("Upload failed");
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Button title="Pick ID Photo" onPress={pickDoc} />
+      {image && <Image source={{ uri: image }} style={{ width: 200, height: 120, marginVertical: 12 }} />}
+      <Button title="Upload for Verification" onPress={upload} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 12 }
+});
