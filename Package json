@@ -1,0 +1,21 @@
+{
+  "name": "pulse-realtime-scaffold",
+  "version": "0.0.1",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "firebase": "^9.0.0",
+    "@react-navigation/native": "^6.0.0",
+    "@react-navigation/bottom-tabs": "^6.0.0",
+    "@react-navigation/stack": "^6.0.0",
+    "react": "18.0.0",
+    "react-native": "0.71.0",
+    "expo": "^48.0.0",
+    "expo-image-picker": "^14.0.0"
+  }
+}
